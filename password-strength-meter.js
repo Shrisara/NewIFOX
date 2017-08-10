@@ -1,80 +1,109 @@
-/* global zxcvbn */
-window.wp = window.wp || {};
+/* global wp, pwsL10n, wc_password_strength_meter_params */
+jQuery( function( $ ) {
 
-var passwordStrength;
-(function($){
-	wp.passwordStrength = {
+	/**
+	 * Password Strength Meter class.
+	 */
+	var wc_password_strength_meter = {
+
 		/**
-		 * Determine the strength of a given password
-		 *
-		 * @param string password1 The password
-		 * @param array blacklist An array of words that will lower the entropy of the password
-		 * @param string password2 The confirmed password
+		 * Initialize strength meter actions.
 		 */
-		meter : function( password1, blacklist, password2 ) {
-			if ( ! $.isArray( blacklist ) )
-				blacklist = [ blacklist.toString() ];
-
-			if (password1 != password2 && password2 && password2.length > 0)
-				return 5;
-
-			if ( 'undefined' === typeof window.zxcvbn ) {
-				// Password strength unknown.
-				return -1;
-			}
-
-			var result = zxcvbn( password1, blacklist );
-			return result.score;
+		init: function() {
+			$( document.body )
+				.on( 'keyup change', 'form.register #reg_password, form.checkout #account_password, form.edit-account #password_1, form.lost_reset_password #password_1', this.strengthMeter );
+			$( 'form.checkout #createaccount' ).change();
 		},
 
 		/**
-		 * Builds an array of data that should be penalized, because it would lower the entropy of a password if it were used
-		 *
-		 * @return array The array of data to be blacklisted
+		 * Strength Meter.
 		 */
-		userInputBlacklist : function() {
-			var i, userInputFieldsLength, rawValuesLength, currentField,
-				rawValues       = [],
-				blacklist       = [],
-				userInputFields = [ 'user_login', 'first_name', 'last_name', 'nickname', 'display_name', 'email', 'url', 'description', 'weblog_title', 'admin_email' ];
+		strengthMeter: function() {
+			var wrapper    = $( 'form.register, form.checkout, form.edit-account, form.lost_reset_password' ),
+				submit     = $( 'input[type="submit"]', wrapper ),
+				field      = $( '#reg_password, #account_password, #password_1', wrapper ),
+				strength   = 1,
+				fieldValue = field.val();
 
-			// Collect all the strings we want to blacklist
-			rawValues.push( document.title );
-			rawValues.push( document.URL );
+			wc_password_strength_meter.includeMeter( wrapper, field );
 
-			userInputFieldsLength = userInputFields.length;
-			for ( i = 0; i < userInputFieldsLength; i++ ) {
-				currentField = $( '#' + userInputFields[ i ] );
+			strength = wc_password_strength_meter.checkPasswordStrength( wrapper, field );
 
-				if ( 0 === currentField.length ) {
-					continue;
-				}
+			if ( fieldValue.length > 0 && strength < wc_password_strength_meter_params.min_password_strength && ! wrapper.is( 'form.checkout' ) ) {
+				submit.attr( 'disabled', 'disabled' ).addClass( 'disabled' );
+			} else {
+				submit.removeAttr( 'disabled', 'disabled' ).removeClass( 'disabled' );
+			}
+		},
 
-				rawValues.push( currentField[0].defaultValue );
-				rawValues.push( currentField.val() );
+		/**
+		 * Include meter HTML.
+		 *
+		 * @param {Object} wrapper
+		 * @param {Object} field
+		 */
+		includeMeter: function( wrapper, field ) {
+			var meter = wrapper.find( '.woocommerce-password-strength' );
+
+			if ( '' === field.val() ) {
+				meter.remove();
+				$( document.body ).trigger( 'wc-password-strength-removed' );
+			} else if ( 0 === meter.length ) {
+				field.after( '<div class="woocommerce-password-strength" aria-live="polite"></div>' );
+				$( document.body ).trigger( 'wc-password-strength-added' );
+			}
+		},
+
+		/**
+		 * Check password strength.
+		 *
+		 * @param {Object} field
+		 *
+		 * @return {Int}
+		 */
+		checkPasswordStrength: function( wrapper, field ) {
+			var meter     = wrapper.find( '.woocommerce-password-strength' );
+			var hint      = wrapper.find( '.woocommerce-password-hint' );
+			var hint_html = '<small class="woocommerce-password-hint">' + wc_password_strength_meter_params.i18n_password_hint + '</small>';
+			var strength  = wp.passwordStrength.meter( field.val(), wp.passwordStrength.userInputBlacklist() );
+			var error     = '';
+
+			// Reset
+			meter.removeClass( 'short bad good strong' );
+			hint.remove();
+
+			// Error to append
+			if ( strength < wc_password_strength_meter_params.min_password_strength ) {
+				error = ' - ' + wc_password_strength_meter_params.i18n_password_error;
 			}
 
-			// Strip out non-alphanumeric characters and convert each word to an individual entry
-			rawValuesLength = rawValues.length;
-			for ( i = 0; i < rawValuesLength; i++ ) {
-				if ( rawValues[ i ] ) {
-					blacklist = blacklist.concat( rawValues[ i ].replace( /\W/g, ' ' ).split( ' ' ) );
-				}
+			switch ( strength ) {
+				case 0 :
+					meter.addClass( 'short' ).html( pwsL10n['short'] + error );
+					meter.after( hint_html );
+					break;
+				case 1 :
+					meter.addClass( 'bad' ).html( pwsL10n.bad + error );
+					meter.after( hint_html );
+					break;
+				case 2 :
+					meter.addClass( 'bad' ).html( pwsL10n.bad + error );
+					meter.after( hint_html );
+					break;
+				case 3 :
+					meter.addClass( 'good' ).html( pwsL10n.good + error );
+					break;
+				case 4 :
+					meter.addClass( 'strong' ).html( pwsL10n.strong + error );
+					break;
+				case 5 :
+					meter.addClass( 'short' ).html( pwsL10n.mismatch );
+					break;
 			}
 
-			// Remove empty values, short words, and duplicates. Short words are likely to cause many false positives.
-			blacklist = $.grep( blacklist, function( value, key ) {
-				if ( '' === value || 4 > value.length ) {
-					return false;
-				}
-
-				return $.inArray( value, blacklist ) === key;
-			});
-
-			return blacklist;
+			return strength;
 		}
 	};
 
-	// Back-compat.
-	passwordStrength = wp.passwordStrength.meter;
-})(jQuery);
+	wc_password_strength_meter.init();
+});
